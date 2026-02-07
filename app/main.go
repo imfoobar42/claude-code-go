@@ -1,19 +1,19 @@
 package main
 
 import (
-	"context"
-	"flag"
-	"fmt"
-	"os"
+	"context" //used to control cancellations, timeouts and request lifetimes
+	"flag"    //for parsing command line arguments
+	"fmt"     //for formatted I/O
+	"os"      //for interacting with the operating system, such as environment variables and standard input/output
 
-	"github.com/openai/openai-go/v3"
-	"github.com/openai/openai-go/v3/option"
+	"github.com/openai/openai-go/v3"        //open AI client SDK
+	"github.com/openai/openai-go/v3/option" //for configuring the OpenAI key, base URL
 )
 
 func main() {
 	var prompt string
 	flag.StringVar(&prompt, "p", "", "Prompt to send to LLM")
-	flag.Parse()
+	flag.Parse() //read the command line arguments and populate the prompt variable
 
 	if prompt == "" {
 		panic("Prompt must not be empty")
