@@ -81,7 +81,7 @@ func main() {
 		openai.ChatCompletionFunctionTool(openai.FunctionDefinitionParam{
 			Name:        "Bash",
 			Description: openai.String("Execute shell commands"),
-			Parameters: map[string]any{
+			Parameters: openai.FunctionParameters{
 				"type":     "object",
 				"required": []string{"command"},
 				"properties": map[string]any{
