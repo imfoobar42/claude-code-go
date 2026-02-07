@@ -35,6 +35,13 @@ func main() {
 	client := openai.NewClient(option.WithAPIKey(apiKey), option.WithBaseURL(baseUrl)) //initialize OpenAI client
 	messages := []openai.ChatCompletionMessageParamUnion{                              //conversation history that grows each loop
 		{
+			OfSystem: &openai.ChatCompletionSystemMessageParam{
+				Content: openai.ChatCompletionSystemMessageParamContentUnion{
+					OfString: openai.String("You are a coding assistant with tools. Use Bash for shell commands like ls, rm, mkdir. Use Read/Write for file contents. If a tool is needed, call it instead of explaining."),
+				},
+			},
+		},
+		{
 			OfUser: &openai.ChatCompletionUserMessageParam{
 				Content: openai.ChatCompletionUserMessageParamContentUnion{
 					OfString: openai.String(prompt),
