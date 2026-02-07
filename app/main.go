@@ -7,6 +7,7 @@ import (
 	"fmt"     //for formatted I/O
 	"os"      //for interacting with the operating system, such as environment variables and standard input/output
 	"os/exec" //for running shell commands
+	"strings" //for splitting command arguments
 
 	//for encoding and decoding JSON data
 
@@ -34,13 +35,6 @@ func main() {
 	}
 	client := openai.NewClient(option.WithAPIKey(apiKey), option.WithBaseURL(baseUrl)) //initialize OpenAI client
 	messages := []openai.ChatCompletionMessageParamUnion{                              //conversation history that grows each loop
-		{
-			OfSystem: &openai.ChatCompletionSystemMessageParam{
-				Content: openai.ChatCompletionSystemMessageParamContentUnion{
-					OfString: openai.String("You are a coding assistant with tools. Use Bash for shell commands like ls, rm, mkdir. Use Read/Write for file contents. If a tool is needed, call it instead of explaining."),
-				},
-			},
-		},
 		{
 			OfUser: &openai.ChatCompletionUserMessageParam{
 				Content: openai.ChatCompletionUserMessageParamContentUnion{
@@ -89,14 +83,14 @@ func main() {
 			Name:        "Bash",
 			Description: openai.String("Execute shell commands"),
 			Parameters: openai.FunctionParameters{
-				"type":     "object",
-				"required": []string{"command"},
+				"type": "object",
 				"properties": map[string]any{
 					"command": map[string]any{
 						"type":        "string",
 						"description": "Command to execute",
 					},
 				},
+				"required": []string{"command"},
 			},
 		}),
 	}
@@ -154,6 +148,7 @@ func main() {
 				panic(fmt.Sprintf("Failed to parse tool call arguments: %v", err))
 			}
 
+			toolOutput := ""
 			switch toolCall.Function.Name {
 			case "Read": //Read: return file contents
 				filePath, ok := arguments["file_path"].(string)
@@ -164,15 +159,7 @@ func main() {
 				if err != nil {
 					panic(fmt.Sprintf("Failed to read file: %v", err))
 				}
-
-				messages = append(messages, openai.ChatCompletionMessageParamUnion{
-					OfTool: &openai.ChatCompletionToolMessageParam{
-						Content: openai.ChatCompletionToolMessageParamContentUnion{
-							OfString: openai.String(string(content)),
-						},
-						ToolCallID: toolCall.ID,
-					},
-				})
+				toolOutput = string(content)
 			case "Write": //Write: overwrite or create file
 				filePath, ok := arguments["file_path"].(string)
 				if !ok {
@@ -185,37 +172,33 @@ func main() {
 				if err := os.WriteFile(filePath, []byte(content), 0o644); err != nil {
 					panic(fmt.Sprintf("Failed to write file: %v", err))
 				}
-
-				messages = append(messages, openai.ChatCompletionMessageParamUnion{
-					OfTool: &openai.ChatCompletionToolMessageParam{
-						Content: openai.ChatCompletionToolMessageParamContentUnion{
-							OfString: openai.String("OK"),
-						},
-						ToolCallID: toolCall.ID,
-					},
-				})
+				toolOutput = "OK"
 			case "Bash": //Bash: execute shell command and return output
 				command, ok := arguments["command"].(string)
 				if !ok {
 					panic("command argument missing or not a string")
 				}
-				outputBytes, err := exec.Command("bash", "-c", command).CombinedOutput()
-				output := string(outputBytes)
-				if err != nil {
-					output += fmt.Sprintf("\nCommand error: %v", err)
+				parts := strings.Fields(command)
+				if len(parts) == 0 {
+					panic("command argument missing or empty")
 				}
-
-				messages = append(messages, openai.ChatCompletionMessageParamUnion{
-					OfTool: &openai.ChatCompletionToolMessageParam{
-						Content: openai.ChatCompletionToolMessageParamContentUnion{
-							OfString: openai.String(output),
-						},
-						ToolCallID: toolCall.ID,
-					},
-				})
+				outputBytes, err := exec.Command(parts[0], parts[1:]...).CombinedOutput()
+				toolOutput = string(outputBytes)
+				if err != nil {
+					toolOutput += fmt.Sprintf("\nCommand error: %v", err)
+				}
 			default:
 				panic("Unexpected tool call")
 			}
+
+			messages = append(messages, openai.ChatCompletionMessageParamUnion{
+				OfTool: &openai.ChatCompletionToolMessageParam{
+					Content: openai.ChatCompletionToolMessageParamContentUnion{
+						OfString: openai.String(toolOutput),
+					},
+					ToolCallID: toolCall.ID,
+				},
+			})
 		}
 	}
 }
