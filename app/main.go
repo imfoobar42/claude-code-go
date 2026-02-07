@@ -42,6 +42,22 @@ func main() {
 					},
 				},
 			},
+			Tools: []openai.ChatCompletionToolUnionParam{
+				openai.ChatCompletionFunctionTool(openai.FunctionDefinitionParam{
+					Name:        "Read",
+					Description: openai.String("Read and return the contents of the file"),
+					Parameters: openai.FunctionParameters{
+						"type": "object",
+						"properties": map[string]any{
+							"file_path": map[string]any{
+								"type":        "string",
+								"description": "The path of the file to read, relative to the current working directory.",
+							},
+						},
+						"required": []string{"file_path"},
+					},
+				}),
+			},
 		},
 	)
 	if err != nil {
