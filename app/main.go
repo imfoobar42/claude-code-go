@@ -89,7 +89,9 @@ func main() {
 		}
 		messages = append(messages, openai.ChatCompletionMessageParamUnion{
 			OfAssistant: &openai.ChatCompletionAssistantMessageParam{
-				Content:   openai.String(message.Content),
+				Content: openai.ChatCompletionAssistantMessageParamContentUnion{
+					OfString: openai.String(message.Content),
+				},
 				ToolCalls: toolCalls,
 			},
 		})
