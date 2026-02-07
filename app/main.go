@@ -31,8 +31,8 @@ func main() {
 	if apiKey == "" {
 		panic("Env variable OPENROUTER_API_KEY not found")
 	}
-	client := openai.NewClient(option.WithAPIKey(apiKey), option.WithBaseURL(baseUrl))
-	messages := []openai.ChatCompletionMessageParamUnion{
+	client := openai.NewClient(option.WithAPIKey(apiKey), option.WithBaseURL(baseUrl)) //initialize OpenAI client
+	messages := []openai.ChatCompletionMessageParamUnion{                              //conversation history that grows each loop
 		{
 			OfUser: &openai.ChatCompletionUserMessageParam{
 				Content: openai.ChatCompletionUserMessageParamContentUnion{
@@ -41,7 +41,7 @@ func main() {
 			},
 		},
 	}
-	tools := []openai.ChatCompletionToolUnionParam{
+	tools := []openai.ChatCompletionToolUnionParam{ //tool definitions exposed to the model
 		openai.ChatCompletionFunctionTool(openai.FunctionDefinitionParam{
 			Name:        "Read",
 			Description: openai.String("Read and return the contents of the file"),
@@ -56,9 +56,27 @@ func main() {
 				"required": []string{"file_path"},
 			},
 		}),
+		openai.ChatCompletionFunctionTool(openai.FunctionDefinitionParam{
+			Name:        "Write",
+			Description: openai.String("Write content to a file"),
+			Parameters: openai.FunctionParameters{
+				"type":     "object",
+				"required": []string{"file_path", "content"},
+				"properties": map[string]any{
+					"file_path": map[string]any{
+						"type":        "string",
+						"description": "Path of the file to write to",
+					},
+					"content": map[string]any{
+						"type":        "string",
+						"description": "Content to write to the file",
+					},
+				},
+			},
+		}),
 	}
 
-	for {
+	for { //agent loop: keep calling the model until no tool calls remain
 		resp, err := client.Chat.Completions.New(context.Background(),
 			openai.ChatCompletionNewParams{
 				Model:    "anthropic/claude-haiku-4.5",
@@ -74,7 +92,7 @@ func main() {
 			panic("No choices in response")
 		}
 
-		message := resp.Choices[0].Message
+		message := resp.Choices[0].Message //assistant response for this turn
 		var toolCalls []openai.ChatCompletionMessageToolCallUnionParam
 		for _, tc := range message.ToolCalls {
 			toolCalls = append(toolCalls, openai.ChatCompletionMessageToolCallUnionParam{
@@ -87,7 +105,7 @@ func main() {
 				},
 			})
 		}
-		messages = append(messages, openai.ChatCompletionMessageParamUnion{
+		messages = append(messages, openai.ChatCompletionMessageParamUnion{ //store assistant message in history
 			OfAssistant: &openai.ChatCompletionAssistantMessageParam{
 				Content: openai.ChatCompletionAssistantMessageParamContentUnion{
 					OfString: openai.String(message.Content),
@@ -96,14 +114,14 @@ func main() {
 			},
 		})
 
-		if len(message.ToolCalls) == 0 {
+		if len(message.ToolCalls) == 0 { //no tool calls means the model is done
 			fmt.Print(message.Content)
 			break
 		}
 
-		for _, toolCall := range message.ToolCalls {
-			if toolCall.Function.Name != "Read" || toolCall.Type != "function" {
-				panic("Unexpected tool call")
+		for _, toolCall := range message.ToolCalls { //execute each requested tool call
+			if toolCall.Type != "function" {
+				panic("Unexpected tool call type")
 			}
 
 			var arguments map[string]any
@@ -111,24 +129,46 @@ func main() {
 				panic(fmt.Sprintf("Failed to parse tool call arguments: %v", err))
 			}
 
-			filePath, ok := arguments["file_path"].(string)
+			filePath, ok := arguments["file_path"].(string) //common argument for Read/Write
 			if !ok {
 				panic("file_path argument missing or not a string")
 			}
 
-			content, err := os.ReadFile(filePath)
-			if err != nil {
-				panic(fmt.Sprintf("Failed to read file: %v", err))
-			}
+			switch toolCall.Function.Name {
+			case "Read": //Read: return file contents
+				content, err := os.ReadFile(filePath)
+				if err != nil {
+					panic(fmt.Sprintf("Failed to read file: %v", err))
+				}
 
-			messages = append(messages, openai.ChatCompletionMessageParamUnion{
-				OfTool: &openai.ChatCompletionToolMessageParam{
-					Content: openai.ChatCompletionToolMessageParamContentUnion{
-						OfString: openai.String(string(content)),
+				messages = append(messages, openai.ChatCompletionMessageParamUnion{
+					OfTool: &openai.ChatCompletionToolMessageParam{
+						Content: openai.ChatCompletionToolMessageParamContentUnion{
+							OfString: openai.String(string(content)),
+						},
+						ToolCallID: toolCall.ID,
 					},
-					ToolCallID: toolCall.ID,
-				},
-			})
+				})
+			case "Write": //Write: overwrite or create file
+				content, ok := arguments["content"].(string)
+				if !ok {
+					panic("content argument missing or not a string")
+				}
+				if err := os.WriteFile(filePath, []byte(content), 0o644); err != nil {
+					panic(fmt.Sprintf("Failed to write file: %v", err))
+				}
+
+				messages = append(messages, openai.ChatCompletionMessageParamUnion{
+					OfTool: &openai.ChatCompletionToolMessageParam{
+						Content: openai.ChatCompletionToolMessageParamContentUnion{
+							OfString: openai.String("OK"),
+						},
+						ToolCallID: toolCall.ID,
+					},
+				})
+			default:
+				panic("Unexpected tool call")
+			}
 		}
 	}
 }
