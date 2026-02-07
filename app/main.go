@@ -3,9 +3,10 @@ package main
 import (
 	"context" //used to control cancellations, timeouts and request lifetimes
 	"encoding/json"
-	"flag" //for parsing command line arguments
-	"fmt"  //for formatted I/O
-	"os"   //for interacting with the operating system, such as environment variables and standard input/output
+	"flag"    //for parsing command line arguments
+	"fmt"     //for formatted I/O
+	"os"      //for interacting with the operating system, such as environment variables and standard input/output
+	"os/exec" //for running shell commands
 
 	//for encoding and decoding JSON data
 
@@ -42,6 +43,7 @@ func main() {
 		},
 	}
 	tools := []openai.ChatCompletionToolUnionParam{ //tool definitions exposed to the model
+		//Read tool definition
 		openai.ChatCompletionFunctionTool(openai.FunctionDefinitionParam{
 			Name:        "Read",
 			Description: openai.String("Read and return the contents of the file"),
@@ -56,6 +58,7 @@ func main() {
 				"required": []string{"file_path"},
 			},
 		}),
+		//Write tool definition
 		openai.ChatCompletionFunctionTool(openai.FunctionDefinitionParam{
 			Name:        "Write",
 			Description: openai.String("Write content to a file"),
@@ -70,6 +73,21 @@ func main() {
 					"content": map[string]any{
 						"type":        "string",
 						"description": "Content to write to the file",
+					},
+				},
+			},
+		}),
+		//Bash tool definition
+		openai.ChatCompletionFunctionTool(openai.FunctionDefinitionParam{
+			Name:        "Bash",
+			Description: openai.String("Execute shell commands"),
+			Parameters: map[string]any{
+				"type":     "object",
+				"required": []string{"command"},
+				"properties": map[string]any{
+					"command": map[string]any{
+						"type":        "string",
+						"description": "Command to execute",
 					},
 				},
 			},
@@ -129,13 +147,12 @@ func main() {
 				panic(fmt.Sprintf("Failed to parse tool call arguments: %v", err))
 			}
 
-			filePath, ok := arguments["file_path"].(string) //common argument for Read/Write
-			if !ok {
-				panic("file_path argument missing or not a string")
-			}
-
 			switch toolCall.Function.Name {
 			case "Read": //Read: return file contents
+				filePath, ok := arguments["file_path"].(string)
+				if !ok {
+					panic("file_path argument missing or not a string")
+				}
 				content, err := os.ReadFile(filePath)
 				if err != nil {
 					panic(fmt.Sprintf("Failed to read file: %v", err))
@@ -150,6 +167,10 @@ func main() {
 					},
 				})
 			case "Write": //Write: overwrite or create file
+				filePath, ok := arguments["file_path"].(string)
+				if !ok {
+					panic("file_path argument missing or not a string")
+				}
 				content, ok := arguments["content"].(string)
 				if !ok {
 					panic("content argument missing or not a string")
@@ -162,6 +183,25 @@ func main() {
 					OfTool: &openai.ChatCompletionToolMessageParam{
 						Content: openai.ChatCompletionToolMessageParamContentUnion{
 							OfString: openai.String("OK"),
+						},
+						ToolCallID: toolCall.ID,
+					},
+				})
+			case "Bash": //Bash: execute shell command and return output
+				command, ok := arguments["command"].(string)
+				if !ok {
+					panic("command argument missing or not a string")
+				}
+				outputBytes, err := exec.Command("bash", "-c", command).CombinedOutput()
+				output := string(outputBytes)
+				if err != nil {
+					output += fmt.Sprintf("\nCommand error: %v", err)
+				}
+
+				messages = append(messages, openai.ChatCompletionMessageParamUnion{
+					OfTool: &openai.ChatCompletionToolMessageParam{
+						Content: openai.ChatCompletionToolMessageParamContentUnion{
+							OfString: openai.String(output),
 						},
 						ToolCallID: toolCall.ID,
 					},
